@@ -6,6 +6,8 @@ import uuid
 from dotenv import load_dotenv
 # Configuración para servir imágenes estáticamente
 from fastapi.staticfiles import StaticFiles
+# Utils
+from utils.image_filter import ImageFilter
 
 # Cargar variables de entorno desde .env
 load_dotenv()
@@ -56,7 +58,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """
-    Endpoint para recibir una imagen y guardarla en la carpeta 'storage'.
+    Endpoint para recibir una imagen, aplicar pixelación y un filtro pasa-altas, y guardarla en la carpeta 'storage'.
     """
     try:
         # Validar que el archivo sea de tipo imagen
@@ -68,15 +70,28 @@ async def upload_image(file: UploadFile = File(...), current_user: dict = Depend
 
         # Crear un nombre único para la imagen
         file_name = f"{uuid.uuid4()}.jpg"
-        file_path = os.path.join(STORAGE_DIR, file_name)
+        temp_path = os.path.join(STORAGE_DIR, f"temp_{file_name}")
+        pixelated_path = os.path.join(STORAGE_DIR, f"pixelated_{file_name}")
+        final_path = os.path.join(STORAGE_DIR, file_name)
 
-        # Guardar la imagen en la carpeta de almacenamiento
-        with open(file_path, "wb") as out_file:
+        # Guardar la imagen temporalmente
+        with open(temp_path, "wb") as out_file:
             out_file.write(await file.read())
+
+        # Paso 1: Aplicar pixelación
+        pixel_size = 10  # Ajusta este valor según el nivel de pixelación deseado
+        ImageFilter.pixelate_image(temp_path, pixelated_path, pixel_size)
+
+        # Paso 2: Aplicar el filtro pasa-altas a la imagen pixelada
+        ImageFilter.apply_high_pass_filter(pixelated_path, final_path)
+
+        # Eliminar los archivos temporales
+        os.remove(temp_path)
+        os.remove(pixelated_path)
 
         return {
             "status": "success",
-            "message": f"Imagen guardada correctamente en '{file_path}'",
+            "message": f"Imagen procesada y guardada correctamente en '{final_path}'",
             "file_name": file_name
         }
 
@@ -99,7 +114,7 @@ async def read_root():
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Carrete de Imágenes</title>
+            <title>Ampolludo</title>
             <style>
                 body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; }
                 img { max-width: 300px; margin: 10px; border: 2px solid #ddd; border-radius: 5px; }
@@ -107,7 +122,7 @@ async def read_root():
             </style>
         </head>
         <body>
-            <h1>Carrete de Imágenes</h1>
+            <h1>Así veo yo</h1>
             <div class="container">
         """
         for image in image_files:
