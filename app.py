@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
 # Utils
 from utils.image_filter import ImageFilter
+from utils.guess_color import GuessColor
 
 # Cargar variables de entorno desde .env
 load_dotenv()
@@ -58,7 +59,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """
-    Endpoint para recibir una imagen, aplicar pixelación y un filtro pasa-altas, y guardarla en la carpeta 'storage'.
+    Endpoint para recibir una imagen, aplicar pixelación y un filtro pasa-altas,
+    guardar la imagen procesada y calcular el color predominante.
     """
     try:
         # Validar que el archivo sea de tipo imagen
@@ -72,6 +74,7 @@ async def upload_image(file: UploadFile = File(...), current_user: dict = Depend
         file_name = f"{uuid.uuid4()}.jpg"
         temp_path = os.path.join(STORAGE_DIR, f"temp_{file_name}")
         pixelated_path = os.path.join(STORAGE_DIR, f"pixelated_{file_name}")
+        edges_path = os.path.join(STORAGE_DIR, f"edges_{file_name}")
         final_path = os.path.join(STORAGE_DIR, file_name)
 
         # Guardar la imagen temporalmente
@@ -82,17 +85,25 @@ async def upload_image(file: UploadFile = File(...), current_user: dict = Depend
         pixel_size = 10  # Ajusta este valor según el nivel de pixelación deseado
         ImageFilter.pixelate_image(temp_path, pixelated_path, pixel_size)
 
-        # Paso 2: Aplicar el filtro pasa-altas a la imagen pixelada
-        ImageFilter.apply_high_pass_filter(pixelated_path, final_path)
+        # Paso 2: Aplicar el filtro pasa-altas para intensificar colores y bordes
+        ImageFilter.apply_high_pass_filter_with_edges(pixelated_path, edges_path)
+
+        # Paso 3: Procesar bordes y conservar el color dominante
+        ImageFilter.process_image(edges_path, final_path)
+
+        # Calcular el color predominante
+        dominant_color = GuessColor.get_dominant_color(final_path)
 
         # Eliminar los archivos temporales
         os.remove(temp_path)
         os.remove(pixelated_path)
+        os.remove(edges_path)
 
         return {
             "status": "success",
             "message": f"Imagen procesada y guardada correctamente en '{final_path}'",
-            "file_name": file_name
+            "file_name": file_name,
+            "dominant_color": dominant_color
         }
 
     except Exception as e:
@@ -100,6 +111,7 @@ async def upload_image(file: UploadFile = File(...), current_user: dict = Depend
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al guardar la imagen: {str(e)}"
         )
+
     
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
